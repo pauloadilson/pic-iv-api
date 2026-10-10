@@ -1,7 +1,49 @@
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+import re
+import unicodedata
+
 import httpx
 from app.config import Settings
+
+def normalizar_texto(valor: str) -> str:
+    texto = unicodedata.normalize("NFKD", valor)
+    texto_sem_acentos = "".join(
+        caractere
+        for caractere in texto
+        if not unicodedata.combining(caractere)
+    )
+    return " ".join(texto_sem_acentos.casefold().split())
+
+def interpretar_timezone(valor: str):
+    """
+    Interpreta tanto identificadores IANA, como America/Sao_Paulo,
+    quanto deslocamentos UTC fixos, como -03:00.
+    """
+    valor = valor.strip()
+
+    deslocamento = re.fullmatch(
+        r"(?P<sinal>[+-])(?P<horas>\d{2}):(?P<minutos>\d{2})",
+        valor,
+    )
+
+    if deslocamento:
+        horas = int(deslocamento.group("horas"))
+        minutos = int(deslocamento.group("minutos"))
+
+        if horas > 23 or minutos > 59:
+            raise ValueError(
+                f"Deslocamento UTC inválido: {valor}"
+            )
+
+        total = timedelta(hours=horas, minutes=minutos)
+
+        if deslocamento.group("sinal") == "-":
+            total = -total
+
+        return timezone(total)
+
+    return ZoneInfo(valor)
 
 class ErroHGBrasil(RuntimeError):
     pass
@@ -33,16 +75,35 @@ class ClienteHGBrasil:
         woeid = str(results.get("woeid", ""))
         if woeid != self.config.hg_brasil_woeid:
             raise ErroHGBrasil(f"WOEID inesperado: {woeid or 'ausente'}")
-        city = str(results.get("city_name") or results.get("city") or "").strip()
-        expected = self.config.hg_brasil_city.split(",")[0].strip().casefold()
-        if expected not in city.casefold():
-            raise ErroHGBrasil(f"Cidade inesperada: {city or 'ausente'}")
+        city = str(
+            results.get("city_name")
+            or results.get("city")
+            or ""
+        ).strip()
 
-        tz_name = str(results.get("timezone") or self.config.app_timezone)
+        expected = self.config.hg_brasil_city.split(",")[0].strip()
+
+        cidade_normalizada = normalizar_texto(city)
+        cidade_esperada_normalizada = normalizar_texto(expected)
+
+        if cidade_esperada_normalizada not in cidade_normalizada:
+            raise ErroHGBrasil(
+                "Cidade inesperada: "
+                f"recebida={city or 'ausente'}; "
+                f"esperada={expected}"
+            )
+
+        tz_name = str(
+            results.get("timezone")
+            or self.config.app_timezone
+        ).strip()
+
         try:
-            tz = ZoneInfo(tz_name)
-        except Exception as exc:
-            raise ErroHGBrasil(f"Timezone invalido: {tz_name}") from exc
+            tz = interpretar_timezone(tz_name)
+        except (ValueError, ZoneInfoNotFoundError) as exc:
+            raise ErroHGBrasil(
+                f"Timezone inválido recebido da fonte: {tz_name}"
+            ) from exc
 
         date_value, time_value = results.get("date"), results.get("time")
         if not date_value or not time_value:
