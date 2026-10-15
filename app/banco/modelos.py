@@ -1,0 +1,118 @@
+from sqlalchemy import (
+    Integer,
+    Boolean,
+    Column,
+    Float,
+    Index,
+    MetaData,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+)
+
+
+metadata = MetaData()
+
+
+observacoes_meteorologicas = Table(
+    "observacoes_meteorologicas",
+    metadata,
+    Column(
+        "id",
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    ),
+    Column(
+        "localidade_id",
+        String(50),
+        nullable=False,
+    ),
+    Column(
+        "cidade",
+        String(255),
+        nullable=False,
+    ),
+    Column(
+        "latitude",
+        Float,
+        nullable=True,
+    ),
+    Column(
+        "longitude",
+        Float,
+        nullable=True,
+    ),
+    Column(
+        "timezone",
+        String(100),
+        nullable=False,
+    ),
+    Column(
+        "instante_fonte",
+        String(50),
+        nullable=False,
+    ),
+    Column(
+        "instante_coleta_utc",
+        String(50),
+        nullable=False,
+    ),
+    Column(
+        "hora_referencia",
+        String(50),
+        nullable=False,
+    ),
+    Column(
+        "temperatura_c",
+        Float,
+        nullable=False,
+    ),
+    Column(
+        "umidade_pct",
+        Float,
+        nullable=False,
+    ),
+    Column(
+        "resposta_original_json",
+        Text,
+        nullable=False,
+    ),
+    Column(
+        "origem",
+        String(50),
+        nullable=False,
+        default="hg_brasil",
+        server_default="hg_brasil",
+    ),
+    Column(
+        "valido_modelo",
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+    ),
+    Column(
+        "motivo_invalidacao",
+        Text,
+        nullable=True,
+    ),
+    Column(
+        "criado_em",
+        String(50),
+        nullable=False,
+    ),
+    UniqueConstraint(
+        "localidade_id",
+        "hora_referencia",
+        name="uq_observacao_localidade_hora",
+    ),
+)
+
+
+Index(
+    "idx_obs_validas_hora",
+    observacoes_meteorologicas.c.valido_modelo,
+    observacoes_meteorologicas.c.hora_referencia,
+)
