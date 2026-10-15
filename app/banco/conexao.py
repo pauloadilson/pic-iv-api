@@ -39,6 +39,7 @@ def get_engine() -> Engine:
 
     argumentos = {
         "pool_pre_ping": True,
+        "pool_recycle": 300,
     }
 
     if database_url.startswith("sqlite"):
