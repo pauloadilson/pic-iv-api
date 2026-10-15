@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/cron/coleta",
+      "schedule": "5 * * * *"
+    }
+  ]
+}
