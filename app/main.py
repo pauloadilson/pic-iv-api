@@ -28,5 +28,4 @@ def health():
     return {
         "status": "ok",
         "aplicacao": "api-meteorologica",
-        "database": engine.dialect.name,
     }

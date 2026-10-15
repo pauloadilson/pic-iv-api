@@ -1,12 +1,22 @@
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+)
 
+from app.seguranca.api_key import validar_api_key
 from app.coleta.hg_brasil import ErroHGBrasil
 from app.config import get_settings
 from app.repositorios.observacoes import ultimas_validas
 from app.servicos.coleta import executar_coleta
 from app.servicos.continuidade import avaliar_continuidade
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[
+        Depends(validar_api_key),
+    ],
+)
 
 
 @router.post("/coleta/executar")
@@ -31,36 +41,3 @@ def observacoes(janela: int):
 @router.get("/continuidade")
 def continuidade():
     return avaliar_continuidade()
-
-
-@router.get("/cron/coleta")
-def coletar_por_cron(
-    authorization: str | None = Header(default=None),
-):
-    cron_secret = get_settings().cron_secret
-
-    if not cron_secret:
-        raise HTTPException(
-            status_code=500,
-            detail="CRON_SECRET não configurado",
-        )
-
-    if authorization != cron_secret:
-        raise HTTPException(
-            status_code=401,
-            detail="Chamada de cron não autorizada",
-        )
-
-    try:
-        observacao = executar_coleta()
-
-        return {
-            "status": "coleta_executada",
-            "observacao": observacao,
-        }
-
-    except ErroHGBrasil as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=str(exc),
-        ) from exc

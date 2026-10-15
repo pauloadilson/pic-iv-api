@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     hg_brasil_key: str
-    cron_secret: str | None = None
+    api_key: str
 
     hg_brasil_woeid: str = "458410"
     hg_brasil_city: str = "Alvares Machado, SP"
