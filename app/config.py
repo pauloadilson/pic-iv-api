@@ -6,11 +6,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     hg_brasil_key: str
     cron_secret: str | None = None
+
     hg_brasil_woeid: str = "458410"
     hg_brasil_city: str = "Alvares Machado, SP"
     app_timezone: str = "America/Sao_Paulo"
 
-    database_url: str = "sqlite:///./data/meteorologia.db"
+    database_url: str
 
     hg_brasil_timeout_seconds: float = 15.0
 
@@ -18,6 +19,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        case_sensitive=False,
     )
 
 

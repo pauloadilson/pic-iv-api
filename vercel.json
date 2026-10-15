@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/cron/coleta",
-      "schedule": "5 12 * * *"
+      "schedule": "..."
     }
   ]
 }
