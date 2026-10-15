@@ -117,7 +117,17 @@ class ClienteHGBrasil:
                 pass
         if instante is None:
             raise ErroHGBrasil("Formato de data/hora da fonte nao reconhecido")
+        
+        agora_fonte = datetime.now(tz)
+        limite_futuro = agora_fonte + timedelta(minutes=15)
 
+        if instante > limite_futuro:
+            raise ErroHGBrasil(
+                "Horário da fonte está excessivamente no futuro: "
+                f"fonte={instante.isoformat()}; "
+                f"coleta={agora_fonte.isoformat()}"
+            )
+        
         try:
             temp = float(results["temp"])
             humidity = float(results["humidity"])
