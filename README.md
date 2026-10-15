@@ -27,7 +27,7 @@ Documentação interativa: `http://127.0.0.1:8000/docs`.
 python -m app.coletor
 ```
 
-Para coleta recorrente, agende esse comando uma vez por hora, preferencialmente alguns minutos após a virada. O banco mantém uma única linha por `localidade_id + hora_referencia`.
+Para coleta recorrente, o Vercel executa `GET /cron/coleta` uma vez por dia às 09:05 no horário de Brasília (12:05 UTC). O banco mantém uma única linha por `localidade_id + hora_referencia`.
 
 ## Endpoints
 
