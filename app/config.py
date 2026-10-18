@@ -5,7 +5,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     hg_brasil_key: str
-    api_key: str
+    api_key: str | None = None
+    validar_api_key: bool = True
 
     hg_brasil_woeid: str = "458410"
     hg_brasil_city: str = "Alvares Machado, SP"

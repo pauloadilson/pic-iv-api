@@ -23,8 +23,17 @@ def validar_api_key(
         str | None,
         Security(api_key_header),
     ],
-) -> str:
-    chave_esperada = get_settings().api_key
+) -> str | None:
+    settings = get_settings()
+
+    if not settings.validar_api_key:
+        return None
+
+    if not settings.api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="A autenticação por chave de API não está configurada",
+        )
 
     if chave_recebida is None:
         raise HTTPException(
@@ -37,7 +46,7 @@ def validar_api_key(
 
     if not hmac.compare_digest(
         chave_recebida,
-        chave_esperada,
+        settings.api_key,
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

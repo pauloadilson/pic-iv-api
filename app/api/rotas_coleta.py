@@ -1,13 +1,11 @@
 from fastapi import (
     APIRouter,
     Depends,
-    Header,
     HTTPException,
 )
 
 from app.seguranca.api_key import validar_api_key
 from app.coleta.hg_brasil import ErroHGBrasil
-from app.config import get_settings
 from app.repositorios.observacoes import ultimas_validas
 from app.servicos.coleta import executar_coleta
 from app.servicos.continuidade import avaliar_continuidade
