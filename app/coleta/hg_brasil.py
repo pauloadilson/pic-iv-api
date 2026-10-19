@@ -156,3 +156,144 @@ def _float_or_none(value):
         return None if value is None else float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _extrair_velocidade_vento_kmh(valor) -> float | None:
+    if valor is None:
+        return None
+    if isinstance(valor, (int, float)):
+        return float(valor)
+    match = re.search(r"[-+]?\d+(?:[.,]\d+)?", str(valor))
+    if not match:
+        return None
+    try:
+        return float(match.group(0).replace(",", "."))
+    except ValueError:
+        return None
+
+
+def extrair_dados_atuais(
+    payload: dict,
+    registro_banco: dict | None = None,
+) -> dict:
+    results = payload.get("results") if isinstance(payload, dict) else None
+    if not isinstance(results, dict):
+        results = {}
+
+    forecast = results.get("forecast")
+    hoje = (
+        forecast[0]
+        if isinstance(forecast, list) and forecast and isinstance(forecast[0], dict)
+        else {}
+    )
+
+    temp = _float_or_none(results.get("temp"))
+    if temp is None and registro_banco is not None:
+        temp = _float_or_none(registro_banco.get("temperatura_c"))
+
+    umidade = _float_or_none(results.get("humidity"))
+    if umidade is None and registro_banco is not None:
+        umidade = _float_or_none(registro_banco.get("umidade_pct"))
+
+    chuva_mm = _float_or_none(results.get("rain"))
+    if chuva_mm is None:
+        chuva_mm = 0.0
+
+    prob_chuva = _float_or_none(hoje.get("rain_probability"))
+    if prob_chuva is None:
+        prob_chuva = 0.0
+
+    vento_formatado = results.get("wind_speedy")
+    velocidade_vento_kmh = _extrair_velocidade_vento_kmh(vento_formatado)
+
+    return {
+        "temperatura_c": temp,
+        "temperatura_max_c": _float_or_none(hoje.get("max")),
+        "temperatura_min_c": _float_or_none(hoje.get("min")),
+        "umidade_pct": umidade,
+        "chuva_mm": chuva_mm,
+        "probabilidade_chuva_pct": prob_chuva,
+        "nebulosidade_pct": _float_or_none(results.get("cloudiness")),
+        "velocidade_vento_kmh": velocidade_vento_kmh,
+        "vento_formatado": vento_formatado,
+        "direcao_vento_graus": _float_or_none(results.get("wind_direction")),
+        "direcao_vento_cardeal": results.get("wind_cardinal"),
+        "condicao": results.get("description"),
+        "codigo_condicao": (
+            str(results["condition_code"])
+            if results.get("condition_code") is not None
+            else None
+        ),
+        "condicao_slug": results.get("condition_slug"),
+        "periodo": results.get("currently"),
+        "nascer_do_sol": results.get("sunrise"),
+        "por_do_sol": results.get("sunset"),
+        "fase_lua": results.get("moon_phase"),
+    }
+
+
+def extrair_previsao(
+    payload: dict,
+    dias: int | None = None,
+) -> list[dict]:
+    results = payload.get("results") if isinstance(payload, dict) else None
+    if not isinstance(results, dict):
+        return []
+
+    forecast = results.get("forecast")
+    if not isinstance(forecast, list):
+        return []
+
+    itens_brutos = [item for item in forecast if isinstance(item, dict)]
+    if dias is not None and dias > 0:
+        itens_brutos = itens_brutos[:dias]
+
+    previsao_normalizada = []
+    for idx, item in enumerate(itens_brutos):
+        weekday = item.get("weekday")
+        rotulo_dia = (
+            "Hoje"
+            if idx == 0
+            else ("Amanhã" if idx == 1 else weekday)
+        )
+        temp_max = _float_or_none(item.get("max"))
+        temp_min = _float_or_none(item.get("min"))
+        chuva_mm = _float_or_none(item.get("rain"))
+        if chuva_mm is None:
+            chuva_mm = 0.0
+        prob_chuva = _float_or_none(item.get("rain_probability"))
+        if prob_chuva is None:
+            prob_chuva = 0.0
+        nebulosidade = _float_or_none(item.get("cloudiness"))
+        vento_fmt = item.get("wind_speedy")
+
+        previsao_normalizada.append(
+            {
+                "data": item.get("date"),
+                "dia_semana": weekday,
+                "rotulo_dia": rotulo_dia,
+                "temperatura_max_c": temp_max,
+                "temperatura_min_c": temp_min,
+                "chuva_mm": chuva_mm,
+                "probabilidade_chuva_pct": prob_chuva,
+                "nebulosidade_pct": nebulosidade,
+                "velocidade_vento_kmh": _extrair_velocidade_vento_kmh(vento_fmt),
+                "vento_formatado": vento_fmt,
+                "condicao": item.get("description"),
+                "condicao_slug": item.get("condition"),
+                # Chaves originais HG Brasil para compatibilidade direta com o Backend
+                "date": item.get("date"),
+                "weekday": weekday,
+                "max": temp_max,
+                "min": temp_min,
+                "rain": chuva_mm,
+                "rain_probability": prob_chuva,
+                "cloudiness": nebulosidade,
+                "wind_speedy": vento_fmt,
+                "description": item.get("description"),
+                "condition": item.get("condition"),
+            }
+        )
+
+    return previsao_normalizada
+

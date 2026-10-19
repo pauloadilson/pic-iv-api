@@ -145,3 +145,30 @@ def ultimas_validas(limit: int) -> list[dict]:
         dict(registro)
         for registro in registros
     ]
+
+
+def ultima_valida() -> dict | None:
+    consulta = (
+        select(observacoes_meteorologicas)
+        .where(
+            observacoes_meteorologicas.c.valido_modelo.is_(
+                True
+            )
+        )
+        .order_by(
+            observacoes_meteorologicas.c.hora_referencia.desc(),
+            observacoes_meteorologicas.c.id.desc(),
+        )
+        .limit(1)
+    )
+
+    engine = get_engine()
+
+    with engine.connect() as conexao:
+        registro = (
+            conexao.execute(consulta)
+            .mappings()
+            .first()
+        )
+
+    return dict(registro) if registro is not None else None
