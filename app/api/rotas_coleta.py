@@ -11,6 +11,7 @@ from app.repositorios.observacoes import ultimas_validas
 from app.servicos.coleta import executar_coleta
 from app.servicos.continuidade import avaliar_continuidade
 from app.servicos.meteorologia import obter_meteorologia_completa
+from app.servicos.previsao_ml import obter_previsao_ml
 
 router = APIRouter(
     dependencies=[
@@ -55,6 +56,17 @@ def meteorologia(
         )
     except ErroHGBrasil as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/previsao-ml")
+def previsao_ml(
+    include_summary: bool = Query(default=True),
+    include_indicators: bool = Query(default=True),
+):
+    return obter_previsao_ml(
+        include_summary=include_summary,
+        include_indicators=include_indicators,
+    )
 
 
 @router.get("/observacoes/{janela}")

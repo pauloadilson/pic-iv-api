@@ -10,6 +10,7 @@ from app.coleta.hg_brasil import (
 )
 from app.repositorios.observacoes import ultima_valida, ultimas_validas
 from app.servicos.coleta import executar_coleta
+from app.servicos.previsao_ml import obter_previsao_ml
 
 
 def _carregar_payload_original(registro: dict) -> dict:
@@ -162,6 +163,7 @@ def obter_meteorologia_completa(
         dias=dias_previsao,
     )
     historico = calcular_resumo_historico()
+    previsao_ml = obter_previsao_ml()
     results = payload_original.get("results")
     if not isinstance(results, dict):
         results = {}
@@ -179,6 +181,7 @@ def obter_meteorologia_completa(
         "atual": dados_atuais,
         "previsao": previsao,
         "historico": historico,
+        "previsao_ml": previsao_ml,
         "results": results,
     }
 
