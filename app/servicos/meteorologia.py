@@ -5,6 +5,9 @@ from app.coleta.hg_brasil import (
     ErroHGBrasil,
     _extrair_velocidade_vento_kmh,
     _float_or_none,
+    avaliar_risco_granizo,
+    detectar_granizo,
+    detectar_tempestade,
     extrair_dados_atuais,
     extrair_previsao,
 )
@@ -62,12 +65,16 @@ def _resumir_janela(registros: list[dict], horas_janela: int) -> dict:
             "umidade_min_pct": None,
             "umidade_media_pct": None,
             "vento_max_kmh": None,
+            "ocorrencias_granizo": 0,
+            "ocorrencias_tempestade": 0,
         }
 
     temperaturas: list[float] = []
     umidades: list[float] = []
     chuvas: list[float] = []
     ventos: list[float] = []
+    ocorrencias_granizo = 0
+    ocorrencias_tempestade = 0
 
     for reg in registros:
         temp = _float_or_none(reg.get("temperatura_c"))
@@ -88,6 +95,20 @@ def _resumir_janela(registros: list[dict], horas_janela: int) -> dict:
             vento = _extrair_velocidade_vento_kmh(results.get("wind_speedy"))
             if vento is not None and vento >= 0:
                 ventos.append(vento)
+
+            if detectar_granizo(
+                condition_slug=results.get("condition_slug"),
+                condition_code=results.get("condition_code"),
+                description=results.get("description"),
+            ):
+                ocorrencias_granizo += 1
+
+            if detectar_tempestade(
+                condition_slug=results.get("condition_slug"),
+                condition_code=results.get("condition_code"),
+                description=results.get("description"),
+            ):
+                ocorrencias_tempestade += 1
 
     precipitacao_total = round(sum(chuvas), 2) if chuvas else 0.0
 
@@ -112,6 +133,8 @@ def _resumir_janela(registros: list[dict], horas_janela: int) -> dict:
             else None
         ),
         "vento_max_kmh": round(max(ventos), 2) if ventos else None,
+        "ocorrencias_granizo": ocorrencias_granizo,
+        "ocorrencias_tempestade": ocorrencias_tempestade,
     }
 
 
@@ -125,6 +148,10 @@ def calcular_resumo_historico() -> dict:
     return {
         "precipitacao_acumulada_24h_mm": resumo_24h["precipitacao_acumulada_mm"],
         "precipitacao_acumulada_72h_mm": resumo_72h["precipitacao_acumulada_mm"],
+        "ocorrencias_granizo_24h": resumo_24h["ocorrencias_granizo"],
+        "ocorrencias_granizo_72h": resumo_72h["ocorrencias_granizo"],
+        "ocorrencias_tempestade_24h": resumo_24h["ocorrencias_tempestade"],
+        "ocorrencias_tempestade_72h": resumo_72h["ocorrencias_tempestade"],
         "janela_24h": resumo_24h,
         "janela_72h": resumo_72h,
     }
@@ -162,6 +189,7 @@ def obter_meteorologia_completa(
         payload_original,
         dias=dias_previsao,
     )
+    risco_granizo = avaliar_risco_granizo(dados_atuais, previsao)
     historico = calcular_resumo_historico()
     previsao_ml = obter_previsao_ml()
     results = payload_original.get("results")
@@ -180,8 +208,8 @@ def obter_meteorologia_completa(
         "origem_dados": origem_dados,
         "atual": dados_atuais,
         "previsao": previsao,
+        "risco_granizo": risco_granizo,
         "historico": historico,
         "previsao_ml": previsao_ml,
         "results": results,
     }
-

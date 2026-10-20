@@ -3,6 +3,9 @@ from fastapi.testclient import TestClient
 
 from app.coleta.hg_brasil import (
     ErroHGBrasil,
+    avaliar_risco_granizo,
+    detectar_granizo,
+    detectar_tempestade,
     extrair_dados_atuais,
     extrair_previsao,
 )
@@ -11,7 +14,12 @@ from app.repositorios.observacoes import salvar_idempotente
 from app.servicos import meteorologia as servico_meteorologia
 
 
-def _payload_hg_completo(chuva_atual: float = 2.5):
+def _payload_hg_completo(
+    chuva_atual: float = 2.5,
+    condition_code: str = "28",
+    condition_slug: str = "cloudly_day",
+    description: str = "Tempo parcialmente nublado",
+):
     return {
         "by": "woeid",
         "valid_key": True,
@@ -20,8 +28,9 @@ def _payload_hg_completo(chuva_atual: float = 2.5):
             "temp": 26,
             "date": "18/10/2026",
             "time": "14:00",
-            "condition_code": "28",
-            "description": "Tempo parcialmente nublado",
+            "condition_code": condition_code,
+            "condition_slug": condition_slug,
+            "description": description,
             "currently": "dia",
             "city": "Álvares Machado, SP",
             "city_name": "Álvares Machado",
@@ -51,14 +60,14 @@ def _payload_hg_completo(chuva_atual: float = 2.5):
                 {
                     "date": "19/10",
                     "weekday": "Seg",
-                    "max": 28,
+                    "max": 32,
                     "min": 18,
                     "cloudiness": 75,
                     "rain": 18.0,
                     "rain_probability": 85,
                     "wind_speedy": "19.2 km/h",
-                    "description": "Chuva moderada",
-                    "condition": "rain",
+                    "description": "Tempestade isolada",
+                    "condition": "storm",
                 },
                 {
                     "date": "20/10",
@@ -69,8 +78,8 @@ def _payload_hg_completo(chuva_atual: float = 2.5):
                     "rain": 8.0,
                     "rain_probability": 70,
                     "wind_speedy": "12.0 km/h",
-                    "description": "Chuva isolada",
-                    "condition": "rain",
+                    "description": "Chuva e granizo",
+                    "condition": "hail",
                 },
                 {
                     "date": "21/10",
@@ -95,6 +104,9 @@ def _criar_observacao(
     temp: float = 26.0,
     umidade: float = 68.0,
     chuva_mm: float = 2.5,
+    condition_code: str = "28",
+    condition_slug: str = "cloudly_day",
+    description: str = "Tempo parcialmente nublado",
 ) -> dict:
     return {
         "localidade_id": "458410",
@@ -107,7 +119,12 @@ def _criar_observacao(
         "hora_referencia": hora_ref.isoformat(),
         "temperatura_c": temp,
         "umidade_pct": umidade,
-        "resposta_original": _payload_hg_completo(chuva_atual=chuva_mm),
+        "resposta_original": _payload_hg_completo(
+            chuva_atual=chuva_mm,
+            condition_code=condition_code,
+            condition_slug=condition_slug,
+            description=description,
+        ),
     }
 
 
@@ -124,14 +141,60 @@ def test_extrai_dados_atuais_e_previsao():
     assert atuais["velocidade_vento_kmh"] == 14.5
     assert atuais["direcao_vento_cardeal"] == "SE"
     assert atuais["condicao"] == "Tempo parcialmente nublado"
+    assert atuais["granizo_detectado"] is False
+    assert atuais["tempestade_detectada"] is False
 
     previsao_3_dias = extrair_previsao(payload, dias=3)
     assert len(previsao_3_dias) == 3
     assert previsao_3_dias[0]["rotulo_dia"] == "Hoje"
+    assert previsao_3_dias[0]["risco_granizo_nivel"] == "baixo"
     assert previsao_3_dias[1]["rotulo_dia"] == "Amanhã"
+    assert previsao_3_dias[1]["tempestade_detectada"] is True
+    assert previsao_3_dias[1]["risco_granizo_nivel"] == "moderado"
     assert previsao_3_dias[2]["rotulo_dia"] == "Ter"
-    assert previsao_3_dias[1]["chuva_mm"] == 18.0
-    assert previsao_3_dias[1]["probabilidade_chuva_pct"] == 85.0
+    assert previsao_3_dias[2]["granizo_detectado"] is True
+    assert previsao_3_dias[2]["risco_granizo_nivel"] == "critico"
+
+
+def test_deteccao_e_classificacao_granizo_e_tempestade():
+    assert detectar_granizo(condition_slug="hail") is True
+    assert detectar_granizo(condition_code="17") is True
+    assert detectar_granizo(condition_code="35") is True
+    assert detectar_granizo(description="Pancadas de chuva com Granizo") is True
+    assert detectar_granizo(condition_slug="rain", condition_code="28", description="Chuva") is False
+
+    assert detectar_tempestade(condition_slug="storm") is True
+    assert detectar_tempestade(condition_code="3") is True
+    assert detectar_tempestade(condition_code="4") is True
+    assert detectar_tempestade(description="Tempestades severas") is True
+    assert detectar_tempestade(condition_slug="clear_day", condition_code="27", description="Limpo") is False
+
+    # 1. Risco Crítico (condition_code 17 / hail)
+    risco_critico = avaliar_risco_granizo(
+        {"granizo_detectado": True, "tempestade_detectada": False, "temperatura_c": 24.0, "probabilidade_chuva_pct": 80.0},
+        [],
+    )
+    assert risco_critico["nivel"] == "critico"
+    assert risco_critico["level"] == "danger"
+    assert risco_critico["granizo_detectado"] is True
+
+    # 2. Risco Moderado (storm + calor >= 30°C + prob_chuva >= 70%)
+    risco_moderado = avaliar_risco_granizo(
+        {"granizo_detectado": False, "tempestade_detectada": True, "temperatura_c": 29.0, "temperatura_max_c": 32.0, "probabilidade_chuva_pct": 75.0},
+        [],
+    )
+    assert risco_moderado["nivel"] == "moderado"
+    assert risco_moderado["level"] == "warning"
+    assert risco_moderado["gatilho_convectivo"] is True
+
+    # 3. Baixo Risco
+    risco_baixo = avaliar_risco_granizo(
+        {"granizo_detectado": False, "tempestade_detectada": False, "temperatura_c": 25.0, "temperatura_max_c": 28.0, "probabilidade_chuva_pct": 30.0},
+        [],
+    )
+    assert risco_baixo["nivel"] == "baixo"
+    assert risco_baixo["level"] == "success"
+    assert risco_baixo["gatilho_convectivo"] is False
 
 
 def test_obter_meteorologia_usa_banco_quando_recente(monkeypatch):
@@ -166,6 +229,7 @@ def test_obter_meteorologia_usa_banco_quando_recente(monkeypatch):
     assert not chamou_coleta
     assert resultado["origem_dados"] == "banco"
     assert resultado["atual"]["chuva_mm"] == 4.0
+    assert resultado["risco_granizo"]["nivel"] == "baixo"
     assert len(resultado["previsao"]) == 3
     assert resultado["historico"]["precipitacao_acumulada_72h_mm"] == 4.0
 
@@ -208,12 +272,15 @@ def test_endpoint_meteorologia_acumulado_72h(monkeypatch):
     agora = datetime.now(timezone.utc)
     base_hora = agora.replace(minute=0, second=0, microsecond=0)
 
-    # Insere 3 observações: 2 nas últimas 24h (2.0mm cada) e 1 há 48h (5.0mm)
+    # Insere 3 observações: 1 há 48h com granizo (código 35), 1 há 1h com tempestade (código 4) e 1 atual
     salvar_idempotente(
         _criar_observacao(
             instante_coleta=agora - timedelta(hours=48),
             hora_ref=base_hora - timedelta(hours=48),
             chuva_mm=5.0,
+            condition_code="35",
+            condition_slug="hail",
+            description="Chuva e granizo",
         )
     )
     salvar_idempotente(
@@ -221,6 +288,9 @@ def test_endpoint_meteorologia_acumulado_72h(monkeypatch):
             instante_coleta=agora - timedelta(hours=1),
             hora_ref=base_hora - timedelta(hours=1),
             chuva_mm=2.0,
+            condition_code="4",
+            condition_slug="storm",
+            description="Tempestades",
         )
     )
     salvar_idempotente(
@@ -238,7 +308,8 @@ def test_endpoint_meteorologia_acumulado_72h(monkeypatch):
     dados = resp.json()
     assert dados["origem_dados"] == "banco"
     assert len(dados["previsao"]) == 3
-    # Como temos apenas 3 registros no banco, tanto a janela de 24 quanto a de 72 pegam os 3 registros (soma = 9.0mm)
     assert dados["historico"]["precipitacao_acumulada_72h_mm"] == 9.0
+    assert dados["historico"]["ocorrencias_granizo_72h"] == 1
+    assert dados["historico"]["ocorrencias_tempestade_72h"] == 1
+    assert dados["risco_granizo"]["nivel"] == "baixo"
     assert dados["results"]["city"] == "Álvares Machado, SP"
-

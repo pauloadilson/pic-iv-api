@@ -6,6 +6,10 @@ import unicodedata
 import httpx
 from app.config import Settings
 
+CODIGOS_GRANIZO = {"17", "35"}
+CODIGOS_TEMPESTADE = {"3", "4"}
+
+
 def normalizar_texto(valor: str) -> str:
     texto = unicodedata.normalize("NFKD", valor)
     texto_sem_acentos = "".join(
@@ -172,6 +176,159 @@ def _extrair_velocidade_vento_kmh(valor) -> float | None:
         return None
 
 
+def detectar_granizo(
+    condition_slug: str | None = None,
+    condition_code: str | int | None = None,
+    description: str | None = None,
+) -> bool:
+    slug_norm = normalizar_texto(str(condition_slug or ""))
+    if slug_norm == "hail":
+        return True
+
+    codigo_str = str(condition_code or "").strip()
+    if codigo_str in CODIGOS_GRANIZO:
+        return True
+
+    desc_norm = normalizar_texto(str(description or ""))
+    if "granizo" in desc_norm:
+        return True
+
+    return False
+
+
+def detectar_tempestade(
+    condition_slug: str | None = None,
+    condition_code: str | int | None = None,
+    description: str | None = None,
+) -> bool:
+    slug_norm = normalizar_texto(str(condition_slug or ""))
+    if slug_norm == "storm":
+        return True
+
+    codigo_str = str(condition_code or "").strip()
+    if codigo_str in CODIGOS_TEMPESTADE:
+        return True
+
+    desc_norm = normalizar_texto(str(description or ""))
+    if "tempestade" in desc_norm or "temporal" in desc_norm:
+        return True
+
+    return False
+
+
+def _classificar_nivel_granizo(
+    *,
+    granizo_ativo: bool,
+    tempestade_ativa: bool,
+    temp_max_c: float | None,
+    prob_chuva_pct: float | None,
+) -> str:
+    if granizo_ativo:
+        return "critico"
+
+    calor_elevado = temp_max_c is not None and temp_max_c >= 30.0
+    alta_prob_chuva = prob_chuva_pct is not None and prob_chuva_pct >= 70.0
+
+    if tempestade_ativa and calor_elevado and alta_prob_chuva:
+        return "moderado"
+
+    return "baixo"
+
+
+def avaliar_risco_granizo(
+    dados_atuais: dict,
+    previsao: list[dict] | None = None,
+) -> dict:
+    hoje = previsao[0] if isinstance(previsao, list) and previsao else {}
+
+    granizo_atual = bool(dados_atuais.get("granizo_detectado"))
+    granizo_hoje = bool(hoje.get("granizo_detectado"))
+    granizo_detectado = granizo_atual or granizo_hoje
+
+    tempestade_atual = bool(dados_atuais.get("tempestade_detectada"))
+    tempestade_hoje = bool(hoje.get("tempestade_detectada"))
+    tempestade_detectada = tempestade_atual or tempestade_hoje
+
+    temp_atual = _float_or_none(dados_atuais.get("temperatura_c"))
+    temp_max_hoje = _float_or_none(
+        hoje.get("temperatura_max_c")
+        if hoje.get("temperatura_max_c") is not None
+        else dados_atuais.get("temperatura_max_c")
+    )
+    candidatos_temp = [t for t in (temp_atual, temp_max_hoje) if t is not None]
+    temp_referencia = max(candidatos_temp) if candidatos_temp else None
+
+    prob_atual = _float_or_none(dados_atuais.get("probabilidade_chuva_pct"))
+    prob_hoje = _float_or_none(hoje.get("probabilidade_chuva_pct"))
+    candidatos_prob = [p for p in (prob_atual, prob_hoje) if p is not None]
+    prob_referencia = max(candidatos_prob) if candidatos_prob else 0.0
+
+    nivel = _classificar_nivel_granizo(
+        granizo_ativo=granizo_detectado,
+        tempestade_ativa=tempestade_detectada,
+        temp_max_c=temp_referencia,
+        prob_chuva_pct=prob_referencia,
+    )
+
+    gatilho_convectivo = bool(
+        tempestade_detectada
+        and temp_referencia is not None
+        and temp_referencia >= 30.0
+        and prob_referencia >= 70.0
+    )
+
+    if nivel == "critico":
+        return {
+            "nivel": "critico",
+            "level": "danger",
+            "status": "Atenção Crítica",
+            "valor": "Alerta Ativo",
+            "probabilidade_estimada_pct": 90.0,
+            "descricao": (
+                "Probabilidade iminente de precipitação sólida (granizo) "
+                "indicada pela condição meteorológica. Proteger estufas."
+            ),
+            "granizo_detectado": True,
+            "tempestade_detectada": tempestade_detectada,
+            "gatilho_convectivo": gatilho_convectivo,
+            "temperatura_max_referencia_c": temp_referencia,
+            "probabilidade_chuva_referencia_pct": prob_referencia,
+        }
+
+    if nivel == "moderado":
+        return {
+            "nivel": "moderado",
+            "level": "warning",
+            "status": "Atenção Moderada",
+            "valor": "Risco Convectivo Moderado",
+            "probabilidade_estimada_pct": 45.0,
+            "descricao": (
+                f"Condição de tempestade combinada com calor elevado ({temp_referencia:.0f}°C) "
+                f"e alta probabilidade de chuva ({prob_referencia:.0f}%), formando gatilho "
+                "convectivo favorável à ocorrência de granizo. Recomenda-se atenção preventiva."
+            ),
+            "granizo_detectado": False,
+            "tempestade_detectada": True,
+            "gatilho_convectivo": True,
+            "temperatura_max_referencia_c": temp_referencia,
+            "probabilidade_chuva_referencia_pct": prob_referencia,
+        }
+
+    return {
+        "nivel": "baixo",
+        "level": "success",
+        "status": "Baixo Risco",
+        "valor": "5% de probabilidade",
+        "probabilidade_estimada_pct": 5.0,
+        "descricao": "Sem probabilidade de precipitação de pedras de gelo nas próximas 24h.",
+        "granizo_detectado": False,
+        "tempestade_detectada": tempestade_detectada,
+        "gatilho_convectivo": False,
+        "temperatura_max_referencia_c": temp_referencia,
+        "probabilidade_chuva_referencia_pct": prob_referencia,
+    }
+
+
 def extrair_dados_atuais(
     payload: dict,
     registro_banco: dict | None = None,
@@ -206,6 +363,25 @@ def extrair_dados_atuais(
     vento_formatado = results.get("wind_speedy")
     velocidade_vento_kmh = _extrair_velocidade_vento_kmh(vento_formatado)
 
+    codigo_condicao = (
+        str(results["condition_code"])
+        if results.get("condition_code") is not None
+        else None
+    )
+    condicao_slug = results.get("condition_slug")
+    condicao_desc = results.get("description")
+
+    granizo_atual = detectar_granizo(
+        condition_slug=condicao_slug,
+        condition_code=codigo_condicao,
+        description=condicao_desc,
+    )
+    tempestade_atual = detectar_tempestade(
+        condition_slug=condicao_slug,
+        condition_code=codigo_condicao,
+        description=condicao_desc,
+    )
+
     return {
         "temperatura_c": temp,
         "temperatura_max_c": _float_or_none(hoje.get("max")),
@@ -218,13 +394,11 @@ def extrair_dados_atuais(
         "vento_formatado": vento_formatado,
         "direcao_vento_graus": _float_or_none(results.get("wind_direction")),
         "direcao_vento_cardeal": results.get("wind_cardinal"),
-        "condicao": results.get("description"),
-        "codigo_condicao": (
-            str(results["condition_code"])
-            if results.get("condition_code") is not None
-            else None
-        ),
-        "condicao_slug": results.get("condition_slug"),
+        "condicao": condicao_desc,
+        "codigo_condicao": codigo_condicao,
+        "condicao_slug": condicao_slug,
+        "granizo_detectado": granizo_atual,
+        "tempestade_detectada": tempestade_atual,
         "periodo": results.get("currently"),
         "nascer_do_sol": results.get("sunrise"),
         "por_do_sol": results.get("sunset"),
@@ -266,6 +440,23 @@ def extrair_previsao(
             prob_chuva = 0.0
         nebulosidade = _float_or_none(item.get("cloudiness"))
         vento_fmt = item.get("wind_speedy")
+        condicao_desc = item.get("description")
+        condicao_slug = item.get("condition")
+
+        granizo_dia = detectar_granizo(
+            condition_slug=condicao_slug,
+            description=condicao_desc,
+        )
+        tempestade_dia = detectar_tempestade(
+            condition_slug=condicao_slug,
+            description=condicao_desc,
+        )
+        risco_granizo_dia = _classificar_nivel_granizo(
+            granizo_ativo=granizo_dia,
+            tempestade_ativa=tempestade_dia,
+            temp_max_c=temp_max,
+            prob_chuva_pct=prob_chuva,
+        )
 
         previsao_normalizada.append(
             {
@@ -279,8 +470,11 @@ def extrair_previsao(
                 "nebulosidade_pct": nebulosidade,
                 "velocidade_vento_kmh": _extrair_velocidade_vento_kmh(vento_fmt),
                 "vento_formatado": vento_fmt,
-                "condicao": item.get("description"),
-                "condicao_slug": item.get("condition"),
+                "condicao": condicao_desc,
+                "condicao_slug": condicao_slug,
+                "granizo_detectado": granizo_dia,
+                "tempestade_detectada": tempestade_dia,
+                "risco_granizo_nivel": risco_granizo_dia,
                 # Chaves originais HG Brasil para compatibilidade direta com o Backend
                 "date": item.get("date"),
                 "weekday": weekday,
@@ -290,10 +484,9 @@ def extrair_previsao(
                 "rain_probability": prob_chuva,
                 "cloudiness": nebulosidade,
                 "wind_speedy": vento_fmt,
-                "description": item.get("description"),
-                "condition": item.get("condition"),
+                "description": condicao_desc,
+                "condition": condicao_slug,
             }
         )
 
     return previsao_normalizada
-
