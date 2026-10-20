@@ -47,6 +47,7 @@ Para coleta recorrente, o Vercel executa `GET /cron/coleta` uma vez por dia às 
 
 - `GET /health`
 - `POST /coleta/executar`
+- `GET /meteorologia` (ou `GET /previsao`) — retorna dados atuais processados, previsão do tempo (`forecast`) e histórico acumulado (24h e 72h), lendo do banco e consultando a HG Brasil apenas se o banco estiver vazio ou defasado (`?dias=5&max_idade_minutos=60&forcar_coleta=false`)
 - `GET /observacoes/24`
 - `GET /observacoes/72`
 - `GET /continuidade`

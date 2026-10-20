@@ -16,6 +16,12 @@ class Settings(BaseSettings):
 
     hg_brasil_timeout_seconds: float = 15.0
 
+    ml_api_url: str | None = None
+    local_ml_api_url: str | None = None
+    porta_ml_api: int | None = None
+    ml_api_key: str | None = None
+    ml_api_timeout_seconds: float = 10.0
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
